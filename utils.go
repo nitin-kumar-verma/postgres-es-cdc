@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -16,35 +15,42 @@ type AppConfig struct {
 	mode        string
 	kafka_url   string
 	es_url      string
+	es_username string
+	es_password string
 }
 
 type DatabaseEvent struct {
-	OperationType string                 `json:"operationType"`
+	OperationType OperationType          `json:"operationType"`
 	TableName     string                 `json:"tableName"`
 	Payload       map[string]interface{} `json:"payload"`
 }
 
+type OperationType string
+
 const (
-	TOPIC         string = "CDC"
-	PRODUCER_MODE string = "PRODUCER"
-	CONSUMER_MODE string = "CONSUMER"
+	TOPIC         string        = "CDC"
+	PRODUCER_MODE string        = "PRODUCER"
+	CONSUMER_MODE string        = "CONSUMER"
+	INSERT        OperationType = "INSERT"
+	UPDATE        OperationType = "UPDATE"
+	DELETE        OperationType = "DELETE"
 )
 
-func GetConsumer() (sarama.PartitionConsumer, error) {
+func GetConsumer() (sarama.Consumer, error) {
 	config := sarama.NewConfig()
 	consumer, err := sarama.NewConsumer(strings.Split(AppConfigs.kafka_url, ","), config)
 	if err != nil {
 		return nil, err
 	}
-	defer consumer.Close()
+	return consumer, nil
+}
 
+func GetPartitionConsumer(consumer sarama.Consumer) (sarama.PartitionConsumer, error) {
 	partitionConsumer, err := consumer.ConsumePartition(TOPIC, 0, sarama.OffsetOldest)
 	if err != nil {
 		return nil, err
 	}
-	defer partitionConsumer.Close()
 	return partitionConsumer, nil
-
 }
 
 func GetProducer() (sarama.SyncProducer, error) {
@@ -58,7 +64,7 @@ func GetProducer() (sarama.SyncProducer, error) {
 	return producer, nil
 }
 
-func ProduceMessage(opType, tableName string, values map[string]interface{}) {
+func ProduceMessage(opType OperationType, tableName string, values map[string]interface{}) {
 
 	event := DatabaseEvent{
 		OperationType: opType,
@@ -85,10 +91,27 @@ func ProduceMessage(opType, tableName string, values map[string]interface{}) {
 
 func ConsumeMessages() {
 
+	var dbEvent DatabaseEvent
 	for {
 		select {
-		case msg := <-consumer.Messages():
-			fmt.Printf("Consumed message: %s\n", string(msg.Value))
+		case msg := <-partitionConsumer.Messages():
+			err := json.Unmarshal(msg.Value, &dbEvent)
+			if err != nil {
+				log.Printf("Error unmarshalling event")
+				continue
+			}
+			switch dbEvent.OperationType {
+			case INSERT:
+				if !IndexExists(dbEvent.TableName) {
+					CreateIndex(dbEvent.TableName)
+				}
+				InsertDocument(dbEvent.TableName, dbEvent.Payload)
+			case UPDATE:
+				UpdateDocument(dbEvent.TableName, dbEvent.Payload)
+			case DELETE:
+				DeleteDocument(dbEvent.TableName, dbEvent.Payload)
+			}
+
 		}
 	}
 }
@@ -114,7 +137,19 @@ func LoadConfigs() AppConfig {
 		if esURL == "" {
 			panic("ES_URL environment variable not set")
 		}
+
+		esUserName := os.Getenv("ES_USERNAME")
+		if esUserName == "" {
+			panic("ES_URL environment variable not set")
+		}
+		esPassword := os.Getenv("ES_PASSWORD")
+		if esPassword == "" {
+			panic("ES_URL environment variable not set")
+		}
 		appConfig.es_url = esURL
+		appConfig.es_username = esUserName
+		appConfig.es_password = esPassword
+
 	} else {
 		panic("INVALID MODE")
 	}

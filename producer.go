@@ -131,9 +131,7 @@ func ProducerWorkFlow() {
 					getColValues(idx, col, rel, values)
 				}
 
-				ProduceMessage("INSERT", rel.RelationName, values)
-
-				log.Printf("INSERT INTO %s.%s: %v", rel.Namespace, rel.RelationName, values)
+				ProduceMessage(INSERT, rel.RelationName, values)
 
 			case *pglogrepl.UpdateMessage:
 
@@ -146,9 +144,7 @@ func ProducerWorkFlow() {
 					getColValues(idx, col, rel, values)
 				}
 
-				ProduceMessage("UPDATE", rel.RelationName, values)
-
-				log.Printf("New data %s.%s: %v", rel.Namespace, rel.RelationName, values)
+				ProduceMessage(UPDATE, rel.RelationName, values)
 
 			case *pglogrepl.DeleteMessage:
 				rel, ok := relations[logicalMsg.RelationID]
@@ -160,9 +156,7 @@ func ProducerWorkFlow() {
 					getColValues(idx, col, rel, values)
 				}
 
-				ProduceMessage("DELETE", rel.RelationName, values)
-
-				log.Printf("Deleted data %s.%s: %v", rel.Namespace, rel.RelationName, values)
+				ProduceMessage(DELETE, rel.RelationName, values)
 
 			//Below cases won't be handled
 			case *pglogrepl.TruncateMessage:
